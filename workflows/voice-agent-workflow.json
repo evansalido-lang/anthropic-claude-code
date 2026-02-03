@@ -1,0 +1,294 @@
+{
+  "name": "Voice Agent - Claude + Eleven Labs",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-agent",
+        "options": {
+          "rawBody": true
+        },
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "Voice Agent Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "voice-agent-webhook"
+    },
+    {
+      "parameters": {
+        "operation": "transcribe",
+        "binaryPropertyName": "audio",
+        "options": {
+          "language": "en",
+          "responseFormat": "text"
+        }
+      },
+      "id": "speech-to-text",
+      "name": "Speech to Text (Whisper)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.6,
+      "position": [460, 300],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-20250514"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "={{ $json.text }}"
+            }
+          ]
+        },
+        "options": {
+          "systemMessage": "You are a helpful, friendly, and conversational voice assistant. Your responses should be:\n\n1. **Concise**: Keep responses brief and to the point since they will be spoken aloud. Aim for 1-3 sentences unless more detail is specifically requested.\n\n2. **Natural**: Use conversational language that sounds natural when spoken. Avoid bullet points, markdown formatting, or text-only constructs.\n\n3. **Engaging**: Be warm, personable, and engaging. Use a friendly tone that makes the conversation enjoyable.\n\n4. **Clear**: Avoid jargon, complex vocabulary, or tongue-twisters that might be difficult to pronounce or understand when spoken.\n\n5. **Contextual**: Remember the conversation context and refer back to previous points when relevant.\n\nRespond as if you're having a natural voice conversation with a friend. Never mention that you're an AI unless directly asked.",
+          "maxTokens": 500,
+          "temperature": 0.7
+        }
+      },
+      "id": "claude-brain",
+      "name": "Claude AI Brain",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [680, 300],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "textToSpeech",
+        "voiceId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "21m00Tcm4TlvDq8ikWAM",
+          "cachedResultName": "Rachel"
+        },
+        "text": "={{ $json.message.content }}",
+        "options": {
+          "modelId": "eleven_multilingual_v2",
+          "stability": 0.5,
+          "similarityBoost": 0.75,
+          "style": 0.5,
+          "useSpeakerBoost": true,
+          "outputFormat": "mp3_44100_128"
+        }
+      },
+      "id": "eleven-labs-tts",
+      "name": "Eleven Labs TTS",
+      "type": "n8n-nodes-base.elevenLabs",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "credentials": {
+        "elevenLabsApi": {
+          "id": "elevenlabs-credentials",
+          "name": "Eleven Labs API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "responseBody": "={{ $binary }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "audio/mpeg"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-webhook",
+      "name": "Respond with Audio",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "condition-has-audio",
+              "leftValue": "={{ $binary.audio }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-audio-input",
+      "name": "Has Audio Input?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 480]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ error: 'No audio file provided. Please send audio in the request body.', status: 400 }) }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "error-no-audio",
+      "name": "Error: No Audio",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [680, 560]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "conversationId",
+              "value": "={{ $json.headers['x-conversation-id'] || $now.toMillis() }}"
+            },
+            {
+              "name": "timestamp",
+              "value": "={{ $now.toISO() }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "set-metadata",
+      "name": "Set Conversation Metadata",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [240, 480]
+    }
+  ],
+  "connections": {
+    "Voice Agent Webhook": {
+      "main": [
+        [
+          {
+            "node": "Set Conversation Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Conversation Metadata": {
+      "main": [
+        [
+          {
+            "node": "Has Audio Input?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Audio Input?": {
+      "main": [
+        [
+          {
+            "node": "Speech to Text (Whisper)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error: No Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Speech to Text (Whisper)": {
+      "main": [
+        [
+          {
+            "node": "Claude AI Brain",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude AI Brain": {
+      "main": [
+        [
+          {
+            "node": "Eleven Labs TTS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eleven Labs TTS": {
+      "main": [
+        [
+          {
+            "node": "Respond with Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "voice-agent-instance"
+  },
+  "pinData": {},
+  "versionId": "1.0.0",
+  "triggerCount": 1,
+  "tags": [
+    {
+      "name": "voice-agent",
+      "createdAt": "2026-02-03T00:00:00.000Z",
+      "updatedAt": "2026-02-03T00:00:00.000Z"
+    },
+    {
+      "name": "eleven-labs",
+      "createdAt": "2026-02-03T00:00:00.000Z",
+      "updatedAt": "2026-02-03T00:00:00.000Z"
+    },
+    {
+      "name": "claude-ai",
+      "createdAt": "2026-02-03T00:00:00.000Z",
+      "updatedAt": "2026-02-03T00:00:00.000Z"
+    }
+  ]
+}
