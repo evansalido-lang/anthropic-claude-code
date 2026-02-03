@@ -1,0 +1,483 @@
+{
+  "name": "Voice Agent - Claude In-Memory Knowledge Base",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-agent-simple-kb",
+        "options": {
+          "rawBody": true
+        },
+        "responseMode": "responseNode"
+      },
+      "id": "webhook-trigger",
+      "name": "Voice Agent Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "webhookId": "voice-agent-simple-kb-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "condition-has-audio",
+              "leftValue": "={{ $binary?.audio }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "exists"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "check-input-type",
+      "name": "Audio or Text Input?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "operation": "transcribe",
+        "binaryPropertyName": "audio",
+        "options": {
+          "language": "en",
+          "responseFormat": "text"
+        }
+      },
+      "id": "speech-to-text",
+      "name": "Speech to Text (Whisper)",
+      "type": "n8n-nodes-base.openAi",
+      "typeVersion": 1.6,
+      "position": [680, 200],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "userQuery",
+              "value": "={{ $json.body?.message || $json.body?.text || $json.body?.query || 'Hello' }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "extract-text-input",
+      "name": "Extract Text Input",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [680, 400]
+    },
+    {
+      "parameters": {
+        "values": {
+          "string": [
+            {
+              "name": "userQuery",
+              "value": "={{ $json.text }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "format-transcription",
+      "name": "Format Transcription",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [900, 200]
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "mergeByFields": {
+          "values": []
+        },
+        "options": {}
+      },
+      "id": "merge-inputs",
+      "name": "Merge Inputs",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "content": "={{ $json.knowledgeBase }}",
+        "options": {}
+      },
+      "id": "knowledge-base-loader",
+      "name": "Load Knowledge Base",
+      "type": "@n8n/n8n-nodes-langchain.documentDefaultDataLoader",
+      "typeVersion": 1,
+      "position": [1340, 680]
+    },
+    {
+      "parameters": {
+        "chunkSize": 1000,
+        "chunkOverlap": 200,
+        "options": {}
+      },
+      "id": "text-splitter",
+      "name": "Text Splitter",
+      "type": "@n8n/n8n-nodes-langchain.textSplitterRecursiveCharacterTextSplitter",
+      "typeVersion": 1,
+      "position": [1340, 860]
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "inmemory-vector-store",
+      "name": "In-Memory Vector Store",
+      "type": "@n8n/n8n-nodes-langchain.vectorStoreInMemory",
+      "typeVersion": 1,
+      "position": [1560, 680]
+    },
+    {
+      "parameters": {
+        "model": "text-embedding-3-small",
+        "options": {}
+      },
+      "id": "embeddings",
+      "name": "OpenAI Embeddings",
+      "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
+      "typeVersion": 1.2,
+      "position": [1560, 860],
+      "credentials": {
+        "openAiApi": {
+          "id": "openai-credentials",
+          "name": "OpenAI API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "id": "vector-store-retriever",
+      "name": "Vector Store Retriever",
+      "type": "@n8n/n8n-nodes-langchain.retrieverVectorStore",
+      "typeVersion": 1,
+      "position": [1560, 500]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Define your knowledge base content here\n// This will be used by Claude to answer questions\n\nconst knowledgeBase = `\n# Company Knowledge Base\n\n## About Our Company\nWe are a technology company focused on AI solutions.\nFounded in 2020, we specialize in voice AI and automation.\n\n## Products\n- VoiceBot Pro: Our flagship voice assistant platform\n- AutoFlow: Workflow automation tool\n- DataSync: Real-time data synchronization service\n\n## Support\n- Email: support@example.com\n- Phone: 1-800-EXAMPLE\n- Hours: Monday-Friday 9AM-5PM EST\n\n## Frequently Asked Questions\n\nQ: How do I reset my password?\nA: Click the 'Forgot Password' link on the login page and follow the instructions sent to your email.\n\nQ: What payment methods do you accept?\nA: We accept all major credit cards, PayPal, and bank transfers.\n\nQ: Is there a free trial?\nA: Yes, we offer a 14-day free trial for all our products.\n\n## Pricing\n- Basic Plan: $29/month\n- Pro Plan: $99/month  \n- Enterprise: Contact sales\n\n---\nAdd your own knowledge base content above.\nThis content will be used by Claude to answer questions.\n`;\n\nreturn {\n  userQuery: $input.first().json.userQuery,\n  knowledgeBase: knowledgeBase\n};"
+      },
+      "id": "knowledge-base-code",
+      "name": "Knowledge Base Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.userQuery }}",
+        "options": {
+          "systemMessage": "You are a helpful voice assistant with access to a custom knowledge base. Your responses should be:\n\n1. **Based on the provided context**: Always prioritize information from the knowledge base documents. If the answer is in the context, use it.\n\n2. **Honest about limitations**: If the question cannot be answered from the provided context, say so clearly. Don't make up information.\n\n3. **Concise for voice**: Keep responses brief (1-3 sentences) since they will be spoken aloud.\n\n4. **Natural and conversational**: Use language that sounds natural when spoken.\n\n5. **Clear**: Avoid jargon or complex terms unless they appear in the knowledge base.\n\nWhen answering:\n- First check if the context contains relevant information\n- Synthesize the answer from the documents\n- If no relevant information exists, politely indicate you don't have that information in your knowledge base"
+        }
+      },
+      "id": "qa-chain",
+      "name": "Knowledge Base QA",
+      "type": "@n8n/n8n-nodes-langchain.chainRetrievalQa",
+      "typeVersion": 1.4,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "claude-sonnet-4-20250514"
+        },
+        "options": {
+          "maxTokens": 500,
+          "temperature": 0.3
+        }
+      },
+      "id": "claude-llm",
+      "name": "Claude LLM",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.2,
+      "position": [1780, 500],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "textToSpeech",
+        "voiceId": {
+          "__rl": true,
+          "mode": "list",
+          "value": "21m00Tcm4TlvDq8ikWAM",
+          "cachedResultName": "Rachel"
+        },
+        "text": "={{ $json.text }}",
+        "options": {
+          "modelId": "eleven_multilingual_v2",
+          "stability": 0.5,
+          "similarityBoost": 0.75,
+          "style": 0.5,
+          "useSpeakerBoost": true,
+          "outputFormat": "mp3_44100_128"
+        }
+      },
+      "id": "eleven-labs-tts",
+      "name": "Eleven Labs TTS",
+      "type": "n8n-nodes-base.elevenLabs",
+      "typeVersion": 1,
+      "position": [2000, 300],
+      "credentials": {
+        "elevenLabsApi": {
+          "id": "elevenlabs-credentials",
+          "name": "Eleven Labs API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "responseBody": "={{ $binary }}",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Type",
+                "value": "audio/mpeg"
+              }
+            ]
+          }
+        }
+      },
+      "id": "respond-audio",
+      "name": "Respond with Audio",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [2220, 300]
+    }
+  ],
+  "connections": {
+    "Voice Agent Webhook": {
+      "main": [
+        [
+          {
+            "node": "Audio or Text Input?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Audio or Text Input?": {
+      "main": [
+        [
+          {
+            "node": "Speech to Text (Whisper)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Extract Text Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Speech to Text (Whisper)": {
+      "main": [
+        [
+          {
+            "node": "Format Transcription",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Transcription": {
+      "main": [
+        [
+          {
+            "node": "Merge Inputs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Text Input": {
+      "main": [
+        [
+          {
+            "node": "Merge Inputs",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge Inputs": {
+      "main": [
+        [
+          {
+            "node": "Knowledge Base Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Knowledge Base Content": {
+      "main": [
+        [
+          {
+            "node": "Knowledge Base QA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Knowledge Base": {
+      "ai_document": [
+        [
+          {
+            "node": "In-Memory Vector Store",
+            "type": "ai_document",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Text Splitter": {
+      "ai_textSplitter": [
+        [
+          {
+            "node": "Load Knowledge Base",
+            "type": "ai_textSplitter",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "In-Memory Vector Store": {
+      "ai_vectorStore": [
+        [
+          {
+            "node": "Vector Store Retriever",
+            "type": "ai_vectorStore",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Embeddings": {
+      "ai_embedding": [
+        [
+          {
+            "node": "In-Memory Vector Store",
+            "type": "ai_embedding",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Vector Store Retriever": {
+      "ai_retriever": [
+        [
+          {
+            "node": "Knowledge Base QA",
+            "type": "ai_retriever",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude LLM": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Knowledge Base QA",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Knowledge Base QA": {
+      "main": [
+        [
+          {
+            "node": "Eleven Labs TTS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Eleven Labs TTS": {
+      "main": [
+        [
+          {
+            "node": "Respond with Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "voice-agent-simple-kb-instance"
+  },
+  "pinData": {},
+  "versionId": "1.0.0",
+  "triggerCount": 1,
+  "tags": [
+    {
+      "name": "voice-agent",
+      "createdAt": "2026-02-03T00:00:00.000Z",
+      "updatedAt": "2026-02-03T00:00:00.000Z"
+    },
+    {
+      "name": "knowledge-base",
+      "createdAt": "2026-02-03T00:00:00.000Z",
+      "updatedAt": "2026-02-03T00:00:00.000Z"
+    },
+    {
+      "name": "in-memory",
+      "createdAt": "2026-02-03T00:00:00.000Z",
+      "updatedAt": "2026-02-03T00:00:00.000Z"
+    }
+  ]
+}
