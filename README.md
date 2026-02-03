@@ -1,6 +1,6 @@
 # Voice Agent - n8n Workflow with Claude AI & Eleven Labs
 
-A conversational voice agent workflow for n8n that uses **Claude AI** as the brain and **Eleven Labs** for realistic text-to-speech synthesis.
+A conversational voice agent workflow for n8n that uses **Claude AI** as the brain (with custom knowledge base support) and **Eleven Labs** for realistic text-to-speech synthesis.
 
 ## Overview
 
@@ -8,29 +8,51 @@ This project provides ready-to-import n8n workflows that create a voice assistan
 
 - Receiving audio input via webhook
 - Transcribing speech to text using OpenAI Whisper
-- Processing the text through Claude AI for intelligent responses
+- Processing the text through Claude AI with your custom knowledge base
 - Converting Claude's response to natural speech using Eleven Labs
 - Returning audio response to the caller
 
 ## Architecture
 
+### Basic Workflow
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │                        Voice Agent Workflow                          │
 ├─────────────────────────────────────────────────────────────────────┤
-│                                                                      │
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────────┐  │
 │  │  Webhook │───▶│  Whisper │───▶│  Claude  │───▶│  Eleven Labs │  │
 │  │  (Audio) │    │   STT    │    │    AI    │    │     TTS      │  │
 │  └──────────┘    └──────────┘    └──────────┘    └──────────────┘  │
-│       │                                                │             │
-│       │                                                ▼             │
-│       │                                         ┌──────────┐        │
-│       └────────────────────────────────────────▶│  Audio   │        │
-│                                                 │ Response │        │
-│                                                 └──────────┘        │
 └─────────────────────────────────────────────────────────────────────┘
 ```
+
+### Knowledge Base Workflow (RAG)
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   Voice Agent with Knowledge Base                            │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  ┌──────────┐    ┌──────────┐    ┌────────────────┐    ┌──────────────┐    │
+│  │  Webhook │───▶│  Whisper │───▶│  Vector Store  │───▶│    Claude    │    │
+│  │  (Audio) │    │   STT    │    │   Retrieval    │    │  + Context   │    │
+│  └──────────┘    └──────────┘    └────────────────┘    └──────────────┘    │
+│                                          │                    │             │
+│                                          │                    ▼             │
+│                                   ┌──────────────┐    ┌──────────────┐     │
+│                                   │   Your Docs  │    │  Eleven Labs │     │
+│                                   │  (Knowledge) │    │     TTS      │     │
+│                                   └──────────────┘    └──────────────┘     │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+## Workflow Options
+
+| Workflow | Description | Knowledge Base |
+|----------|-------------|----------------|
+| `voice-agent-workflow.json` | Basic voice-to-voice | No |
+| `voice-agent-text-fallback.json` | Audio + text input support | No |
+| `voice-agent-knowledge-base.json` | RAG with Pinecone vector DB | Yes (Pinecone) |
+| `voice-agent-inmemory-kb.json` | RAG with in-memory storage | Yes (Code-based) |
+| `document-ingestion.json` | Upload docs to knowledge base | Ingestion helper |
 
 ## Prerequisites
 
@@ -39,7 +61,8 @@ Before setting up the workflow, you'll need:
 1. **n8n instance** - Self-hosted or cloud version
 2. **Anthropic API Key** - Get one from [Anthropic Console](https://console.anthropic.com/)
 3. **Eleven Labs API Key** - Get one from [Eleven Labs](https://elevenlabs.io/app/settings/api-keys)
-4. **OpenAI API Key** - Get one from [OpenAI Platform](https://platform.openai.com/api-keys) (for Whisper STT)
+4. **OpenAI API Key** - Get one from [OpenAI Platform](https://platform.openai.com/api-keys) (for Whisper STT + Embeddings)
+5. **Pinecone API Key** (optional) - For persistent vector storage: [Pinecone](https://www.pinecone.io/)
 
 ## Quick Start
 
@@ -47,9 +70,7 @@ Before setting up the workflow, you'll need:
 
 1. Open your n8n instance
 2. Go to **Workflows** → **Import from File**
-3. Select one of the workflow files:
-   - `workflows/voice-agent-workflow.json` - Basic voice-to-voice workflow
-   - `workflows/voice-agent-text-fallback.json` - Supports both audio and text input
+3. Select the workflow that fits your needs (see table above)
 
 ### 2. Configure Credentials
 
@@ -70,6 +91,11 @@ In n8n, create the following credentials:
 2. Search for "OpenAI"
 3. Enter your OpenAI API key
 
+#### Pinecone Credentials (for knowledge-base workflow)
+1. Go to **Credentials** → **Add Credential**
+2. Search for "Pinecone"
+3. Enter your Pinecone API key and environment
+
 ### 3. Update Node Credentials
 
 After importing, open each node and assign the corresponding credentials you just created.
@@ -78,29 +104,85 @@ After importing, open each node and assign the corresponding credentials you jus
 
 Click **Activate** to enable the webhook endpoint.
 
-## Workflows
+---
 
-### voice-agent-workflow.json
+## Knowledge Base Setup
 
-The basic voice agent workflow with the following nodes:
+### Option 1: In-Memory Knowledge Base (Simple)
 
-| Node | Purpose |
-|------|---------|
-| Voice Agent Webhook | Receives POST requests with audio |
-| Set Conversation Metadata | Extracts conversation ID and timestamp |
-| Has Audio Input? | Validates audio is present |
-| Speech to Text (Whisper) | Transcribes audio to text |
-| Claude AI Brain | Processes text and generates response |
-| Eleven Labs TTS | Converts response to speech |
-| Respond with Audio | Returns audio to caller |
+Use `voice-agent-inmemory-kb.json` for a simple setup without external databases.
 
-### voice-agent-text-fallback.json
+1. Import the workflow
+2. Open the **Knowledge Base Content** code node
+3. Edit the `knowledgeBase` variable with your content:
 
-Enhanced workflow that supports both audio and text input:
+```javascript
+const knowledgeBase = `
+# Your Company Knowledge Base
 
-- Send audio for full voice-to-voice experience
-- Send JSON with `message` field for text-to-voice
-- Set `X-Response-Format: text` header for text-only response
+## Products
+- Product A: Description here
+- Product B: Description here
+
+## FAQ
+Q: Common question?
+A: Answer here.
+
+## Support
+Contact: support@yourcompany.com
+`;
+```
+
+4. Save and activate the workflow
+
+**Pros:** No external services needed, easy to edit
+**Cons:** Content resets when workflow restarts, limited scalability
+
+### Option 2: Pinecone Vector Database (Production)
+
+Use `voice-agent-knowledge-base.json` + `document-ingestion.json` for a scalable solution.
+
+#### Step 1: Set up Pinecone
+
+1. Create a free account at [Pinecone](https://www.pinecone.io/)
+2. Create an index named `knowledge-base`:
+   - Dimensions: `1536` (for OpenAI text-embedding-3-small)
+   - Metric: `cosine`
+
+#### Step 2: Import Both Workflows
+
+1. Import `document-ingestion.json` - for uploading documents
+2. Import `voice-agent-knowledge-base.json` - for the voice agent
+
+#### Step 3: Ingest Your Documents
+
+Upload documents to build your knowledge base:
+
+```bash
+# Upload a PDF
+curl -X POST \
+  'http://localhost:5678/webhook/ingest-documents' \
+  -F 'file=@your-document.pdf'
+
+# Upload a text file
+curl -X POST \
+  'http://localhost:5678/webhook/ingest-documents' \
+  -F 'file=@knowledge.txt'
+```
+
+Supported formats: PDF, TXT, DOCX, CSV, JSON
+
+#### Step 4: Query Your Voice Agent
+
+```bash
+curl -X POST \
+  'http://localhost:5678/webhook/voice-agent-kb' \
+  -H 'Content-Type: application/json' \
+  -d '{"message": "What are your products?"}' \
+  --output response.mp3
+```
+
+---
 
 ## API Usage
 
@@ -114,7 +196,7 @@ curl -X POST \
   --output response.mp3
 ```
 
-### Text Input (v2 workflow)
+### Text Input
 
 ```bash
 curl -X POST \
@@ -124,24 +206,34 @@ curl -X POST \
   --output response.mp3
 ```
 
-### Text Response (v2 workflow)
+### Knowledge Base Query
 
 ```bash
 curl -X POST \
-  'http://localhost:5678/webhook/voice-agent-v2' \
+  'http://localhost:5678/webhook/voice-agent-kb' \
   -H 'Content-Type: application/json' \
-  -H 'X-Response-Format: text' \
-  -d '{"message": "What is the weather like?"}'
+  -d '{"message": "What products do you offer?"}' \
+  --output response.mp3
+```
+
+### Document Ingestion
+
+```bash
+curl -X POST \
+  'http://localhost:5678/webhook/ingest-documents' \
+  -F 'file=@company-info.pdf'
 ```
 
 Response:
 ```json
 {
-  "response": "I don't have access to real-time weather data, but I'd be happy to help you find that information! You could check a weather app or website for your location.",
-  "model": "claude-sonnet-4-20250514",
-  "timestamp": "2026-02-03T12:00:00.000Z"
+  "success": true,
+  "message": "Document processed and added to knowledge base",
+  "chunks": 15
 }
 ```
+
+---
 
 ## Configuration Options
 
@@ -151,7 +243,7 @@ Response:
 |---------|---------|-------------|
 | Model | claude-sonnet-4-20250514 | Claude model to use |
 | Max Tokens | 500 | Maximum response length |
-| Temperature | 0.7 | Response creativity (0-1) |
+| Temperature | 0.3 (KB) / 0.7 (basic) | Lower for factual KB responses |
 
 ### Eleven Labs Settings
 
@@ -164,6 +256,15 @@ Response:
 | Style | 0.5 | Speaking style intensity |
 | Output Format | mp3_44100_128 | Audio format |
 
+### Knowledge Base Settings
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| Chunk Size | 1000 | Characters per document chunk |
+| Chunk Overlap | 200 | Overlap between chunks |
+| Embedding Model | text-embedding-3-small | OpenAI embedding model |
+| Top K Results | 4 | Number of relevant chunks to retrieve |
+
 ### Available Eleven Labs Voices
 
 | Voice | ID | Description |
@@ -175,19 +276,25 @@ Response:
 | Josh | TxGEqnHWrfWFTfGW9XjX | Deep, narrative male |
 | Arnold | VR6AewLTigWG4xSOukaG | Crisp, bold male |
 
+---
+
 ## Customizing the System Prompt
 
 The Claude AI node includes a system prompt that defines the assistant's behavior. To customize:
 
-1. Open the **Claude AI Brain** node
+1. Open the **Claude AI Brain** or **Knowledge Base QA** node
 2. Modify the **System Message** in the options
 3. Save the workflow
 
-Current system prompt focuses on:
-- Concise responses for voice output
-- Natural, conversational language
-- Friendly and engaging tone
-- Clarity for spoken delivery
+### Knowledge Base System Prompt
+
+The KB workflow uses a specialized prompt that:
+- Prioritizes information from your documents
+- Admits when information isn't in the knowledge base
+- Keeps responses concise for voice output
+- Uses natural, conversational language
+
+---
 
 ## Troubleshooting
 
@@ -209,11 +316,20 @@ Current system prompt focuses on:
 - Check API rate limits haven't been exceeded
 - Ensure the model specified is available
 
+### Knowledge base not finding answers
+
+- Verify documents were ingested successfully
+- Check Pinecone index has vectors (Pinecone dashboard)
+- Try rephrasing the question
+- Ensure embedding model matches between ingestion and retrieval
+
 ### Webhook not accessible
 
 - Verify n8n is running and accessible
 - Check firewall settings
 - Ensure workflow is activated
+
+---
 
 ## File Structure
 
@@ -221,9 +337,14 @@ Current system prompt focuses on:
 ├── README.md
 ├── .env.example
 └── workflows/
-    ├── voice-agent-workflow.json
-    └── voice-agent-text-fallback.json
+    ├── voice-agent-workflow.json        # Basic voice agent
+    ├── voice-agent-text-fallback.json   # Audio + text support
+    ├── voice-agent-knowledge-base.json  # RAG with Pinecone
+    ├── voice-agent-inmemory-kb.json     # RAG with in-memory store
+    └── document-ingestion.json          # Document upload for KB
 ```
+
+---
 
 ## License
 
