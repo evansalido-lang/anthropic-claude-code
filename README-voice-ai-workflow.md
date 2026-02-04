@@ -1,23 +1,22 @@
-# n8n Voice AI Assistant Workflow
+# n8n ElevenLabs Voice Agent - RAG Knowledge Base
 
-A complete voice-enabled AI assistant workflow that takes text queries and returns spoken audio responses powered by RAG (Retrieval-Augmented Generation).
+A workflow that connects ElevenLabs Conversational AI voice agent to your Qdrant knowledge base. When callers ask questions, the AI searches your knowledge base and responds with accurate answers.
 
-## Workflow Overview
+## How It Works
 
 ```
-[Webhook] → [Extract Data] → [AI Agent + RAG] → [Prepare TTS] → [ElevenLabs] → [Audio Response]
+Caller speaks → ElevenLabs transcribes → Webhook to n8n → Search Knowledge Base → Generate Answer → Return text → ElevenLabs speaks response
 ```
 
-## Nodes
+## The Flow
 
-| Node | Purpose |
-|------|---------|
-| **Webhook** | Receives POST requests with `query`, `voice_id`, `user_id` |
-| **Extract Webhook Data** | Parses request body and provides defaults |
-| **Generate Answer** | AI Agent with Qdrant RAG and conversation memory |
-| **Prepare ElevenLabs Request** | Formats text and voice settings for TTS API |
-| **ElevenLabs Text-to-Speech** | Converts text to audio (MP3) |
-| **Respond to Webhook** | Returns audio blob to client |
+| Step | Node | Purpose |
+|------|------|---------|
+| 1 | **ElevenLabs Webhook** | Receives POST from ElevenLabs with caller's transcribed speech |
+| 2 | **Extract Caller Query** | Parses the transcription and conversation_id from webhook |
+| 3 | **Generate Answer** | AI Agent searches Qdrant and generates conversational response |
+| 4 | **Format Response** | Packages answer in ElevenLabs expected format |
+| 5 | **Respond to ElevenLabs** | Returns JSON with text for ElevenLabs to speak |
 
 ## Setup Instructions
 
@@ -29,201 +28,171 @@ A complete voice-enabled AI assistant workflow that takes text queries and retur
 
 ### 2. Configure Credentials
 
-You'll need to set up 4 credentials in n8n:
-
 #### Google Gemini API
-- Go to **Settings** → **Credentials** → **Add Credential**
-- Select **Google Gemini API**
-- Add your API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
+- **Settings** → **Credentials** → **Add Credential** → **Google Gemini API**
+- Get API key from [Google AI Studio](https://makersuite.google.com/app/apikey)
 
 #### Qdrant API
 - Add **Qdrant API** credential
-- Configure your Qdrant URL and API key
+- Enter your Qdrant URL and API key
 
 #### OpenAI API (for embeddings)
 - Add **OpenAI API** credential
-- Add your API key from [OpenAI Platform](https://platform.openai.com/api-keys)
+- Get API key from [OpenAI Platform](https://platform.openai.com/api-keys)
 
-#### ElevenLabs API (HTTP Header Auth)
-- Add **HTTP Header Auth** credential
-- Name: `xi-api-key`
-- Value: Your ElevenLabs API key from [ElevenLabs](https://elevenlabs.io/api)
+### 3. Configure the Workflow
 
-### 3. Update Node References
+1. **Qdrant Vector Store node**: Update `your-collection-name` to your actual collection
+2. **All credential nodes**: Select your configured credentials
+3. **Save** and **Activate** the workflow
 
-After importing, update these nodes with your credential IDs:
+### 4. Get Your Webhook URL
 
-1. **Google Gemini Chat Model** - Select your Gemini credential
-2. **Qdrant Vector Store** - Select your Qdrant credential and update collection name
-3. **OpenAI Embeddings** - Select your OpenAI credential
-4. **ElevenLabs Text-to-Speech** - Select your ElevenLabs HTTP Header Auth credential
-
-### 4. Configure Qdrant Collection
-
-In the **Qdrant Vector Store** node, update `your-collection-name` to match your actual Qdrant collection.
-
-### 5. Activate the Workflow
-
-1. Click **Save**
-2. Toggle the workflow to **Active**
-3. Note your webhook URL (shown in the Webhook node)
-
-## API Reference
-
-### Endpoint
+After activating, copy the webhook URL from the **ElevenLabs Webhook** node. It will look like:
 
 ```
-POST https://your-n8n-instance.com/webhook/voice-assistant
+https://your-n8n-instance.com/webhook/elevenlabs-voice-agent
 ```
 
-### Request Body
+### 5. Configure ElevenLabs Voice Agent
+
+1. Go to [ElevenLabs Conversational AI](https://elevenlabs.io/conversational-ai)
+2. Create or edit your voice agent
+3. In the **Webhook** settings, paste your n8n webhook URL
+4. Configure the webhook to send transcribed caller speech
+
+## ElevenLabs Webhook Configuration
+
+In your ElevenLabs agent settings, configure the webhook:
+
+- **URL**: `https://your-n8n-instance.com/webhook/elevenlabs-voice-agent`
+- **Method**: POST
+- **Payload**: The workflow expects these fields (handles multiple formats):
+  - `text` or `transcript` or `message` - The caller's question
+  - `conversation_id` or `call_id` - For conversation memory
+
+## Expected Webhook Payload
+
+ElevenLabs will send something like:
 
 ```json
 {
-  "query": "What is the return policy?",
-  "voice_id": "EXAVITQu4vr4xnSDxMaL",
-  "user_id": "user-123"
+  "text": "What are your business hours?",
+  "conversation_id": "conv_abc123",
+  "caller_id": "+1234567890"
 }
 ```
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `query` | string | Yes | The question to ask |
-| `voice_id` | string | No | ElevenLabs voice ID (default: Sarah) |
-| `user_id` | string | No | User identifier for conversation memory |
+## Response Format
 
-### Response
+n8n returns:
 
-- **Content-Type:** `audio/mpeg`
-- **Body:** Binary MP3 audio data
-
-## Popular ElevenLabs Voice IDs
-
-| Voice | ID |
-|-------|-----|
-| Sarah | `EXAVITQu4vr4xnSDxMaL` |
-| Rachel | `21m00Tcm4TlvDq8ikWAM` |
-| Domi | `AZnzlk1XvdvUeBnXmlld` |
-| Bella | `EXAVITQu4vr4xnSDxMaL` |
-| Antoni | `ErXwobaYiN019PkySvjV` |
-| Josh | `TxGEqnHWrfWFTfGW9XjX` |
-| Arnold | `VR6AewLTigWG4xSOukaG` |
-| Adam | `pNInz6obpgDQGcFmaJgB` |
-
-## React Integration Example
-
-```tsx
-import { useState, useRef } from 'react';
-
-const VoiceAssistant = () => {
-  const [query, setQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const audioRef = useRef<HTMLAudioElement>(null);
-
-  const askQuestion = async () => {
-    if (!query.trim()) return;
-
-    setIsLoading(true);
-
-    try {
-      const response = await fetch('YOUR_N8N_WEBHOOK_URL/webhook/voice-assistant', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          query: query,
-          voice_id: 'EXAVITQu4vr4xnSDxMaL', // Sarah voice
-          user_id: 'user-' + Date.now(), // Or use actual user ID
-        }),
-      });
-
-      if (!response.ok) throw new Error('Request failed');
-
-      // Create blob from audio response
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-
-      // Play the audio
-      if (audioRef.current) {
-        audioRef.current.src = audioUrl;
-        audioRef.current.play();
-      }
-    } catch (error) {
-      console.error('Error:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <div className="voice-assistant">
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="Ask a question..."
-        onKeyPress={(e) => e.key === 'Enter' && askQuestion()}
-      />
-      <button onClick={askQuestion} disabled={isLoading}>
-        {isLoading ? 'Thinking...' : 'Ask'}
-      </button>
-      <audio ref={audioRef} controls />
-    </div>
-  );
-};
-
-export default VoiceAssistant;
+```json
+{
+  "response": "Our business hours are Monday through Friday, 9 AM to 5 PM Eastern time.",
+  "text": "Our business hours are Monday through Friday, 9 AM to 5 PM Eastern time."
+}
 ```
+
+ElevenLabs then speaks this text back to the caller.
+
+## Key Features
+
+| Feature | How It Works |
+|---------|--------------|
+| **RAG Knowledge Base** | Searches Qdrant vector store before answering |
+| **Conversation Memory** | Remembers context within the same call (by conversation_id) |
+| **Natural Responses** | System prompt ensures conversational, phone-friendly answers |
+| **Fast LLM** | Uses Gemini 1.5 Flash for quick responses |
 
 ## Customization
 
 ### Change the AI Model
 
-In the **Google Gemini Chat Model** node, you can switch to:
-- `gemini-1.5-pro` - More capable, slower
-- `gemini-1.5-flash` - Faster, good for most use cases
+In **Google Gemini Chat Model** node:
+- `gemini-1.5-flash` - Fast (recommended for voice)
+- `gemini-1.5-pro` - More capable but slower
 
-### Adjust Voice Settings
+### Adjust the System Prompt
 
-In the **Prepare ElevenLabs Request** node, modify:
+In **Generate Answer from Knowledge Base** node, modify the system message to match your use case:
 
-```javascript
-voice_settings: {
-  stability: 0.5,        // 0-1: Lower = more expressive
-  similarity_boost: 0.75, // 0-1: Higher = closer to original voice
-  style: 0.0,            // 0-1: Style exaggeration
-  use_speaker_boost: true // Enhance voice clarity
-}
+```
+You are a helpful voice assistant for [Your Company].
+Your responses will be spoken aloud to callers.
+...
 ```
 
-### Modify System Prompt
+### Change Number of Retrieved Documents
 
-In the **Generate Answer** (AI Agent) node, update the system message to customize the assistant's personality and behavior.
-
-### Adjust RAG Settings
-
-In the **Vector Store Tool** node:
-- `topK`: Number of documents to retrieve (default: 5)
+In **Vector Store Tool** node, adjust `topK` (default: 5).
 
 ## Troubleshooting
 
-### CORS Issues
-The workflow includes CORS headers (`Access-Control-Allow-Origin: *`). For production, restrict this to your domain.
+### No Response to Caller
+1. Check n8n execution logs for errors
+2. Verify webhook URL is correct in ElevenLabs
+3. Ensure workflow is **Active**
 
-### No Audio Response
-1. Check ElevenLabs API key is valid
-2. Verify the voice_id exists
-3. Check n8n execution logs for errors
-
-### Empty or Wrong Answers
-1. Verify Qdrant collection has data
-2. Check embeddings model matches your indexed data
-3. Review the AI Agent's system prompt
+### Wrong or Generic Answers
+1. Verify Qdrant collection name is correct
+2. Check that your knowledge base has relevant data
+3. Ensure embeddings model matches what you used to index
 
 ### Memory Not Working
-Ensure `user_id` is consistent across requests for the same user.
+- Verify ElevenLabs sends a consistent `conversation_id` for the same call
 
-## License
+### Slow Responses
+- Consider using `gemini-1.5-flash` instead of `pro`
+- Reduce `topK` in Vector Store Tool
+- Check Qdrant instance performance
 
-MIT
+## Testing
+
+You can test the webhook manually:
+
+```bash
+curl -X POST https://your-n8n-instance.com/webhook/elevenlabs-voice-agent \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "What is your return policy?",
+    "conversation_id": "test-123"
+  }'
+```
+
+Expected response:
+```json
+{
+  "response": "Our return policy allows returns within 30 days of purchase...",
+  "text": "Our return policy allows returns within 30 days of purchase..."
+}
+```
+
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    ElevenLabs Voice Agent                   │
+│  (Handles phone calls, speech-to-text, text-to-speech)      │
+└─────────────────────────┬───────────────────────────────────┘
+                          │ POST webhook
+                          ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      n8n Workflow                           │
+│  ┌──────────┐  ┌─────────┐  ┌──────────┐  ┌─────────────┐   │
+│  │ Webhook  │→ │ Extract │→ │ AI Agent │→ │  Respond    │   │
+│  └──────────┘  └─────────┘  └────┬─────┘  └─────────────┘   │
+│                                  │                          │
+│                    ┌─────────────┼─────────────┐            │
+│                    │             │             │            │
+│                    ▼             ▼             ▼            │
+│               ┌────────┐   ┌─────────┐   ┌──────────┐       │
+│               │ Gemini │   │ Memory  │   │ KB Tool  │       │
+│               └────────┘   └─────────┘   └────┬─────┘       │
+│                                               │             │
+│                                               ▼             │
+│                                         ┌──────────┐        │
+│                                         │  Qdrant  │        │
+│                                         └──────────┘        │
+└─────────────────────────────────────────────────────────────┘
+```

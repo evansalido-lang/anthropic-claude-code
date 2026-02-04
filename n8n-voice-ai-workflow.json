@@ -1,41 +1,41 @@
 {
-  "name": "Voice AI Assistant with RAG",
+  "name": "ElevenLabs Voice Agent - RAG Knowledge Base",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
-        "path": "voice-assistant",
+        "path": "elevenlabs-voice-agent",
         "responseMode": "responseNode",
-        "options": {
-          "rawBody": false
-        }
+        "options": {}
       },
       "id": "webhook-entry",
-      "name": "Webhook",
+      "name": "ElevenLabs Webhook",
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2,
       "position": [0, 0],
-      "webhookId": "voice-assistant-webhook"
+      "webhookId": "elevenlabs-voice-agent"
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Extract webhook data\nconst query = $input.first().json.body.query;\nconst voice_id = $input.first().json.body.voice_id || 'EXAVITQu4vr4xnSDxMaL'; // Default to Sarah voice\nconst user_id = $input.first().json.body.user_id || 'anonymous';\n\nreturn [{\n  json: {\n    query,\n    voice_id,\n    user_id\n  }\n}];"
+        "jsCode": "// Extract data from ElevenLabs Conversational AI webhook\n// ElevenLabs sends the caller's transcribed speech\nconst webhookData = $input.first().json.body;\n\n// ElevenLabs webhook payload structure\nconst query = webhookData.text || webhookData.transcript || webhookData.message || '';\nconst conversation_id = webhookData.conversation_id || webhookData.call_id || 'default';\nconst caller_id = webhookData.caller_id || webhookData.from || 'anonymous';\n\n// Log for debugging\nconsole.log('Received query:', query);\nconsole.log('Conversation ID:', conversation_id);\n\nreturn [{\n  json: {\n    query: query,\n    conversation_id: conversation_id,\n    caller_id: caller_id\n  }\n}];"
       },
-      "id": "extract-webhook-data",
-      "name": "Extract Webhook Data",
+      "id": "extract-elevenlabs-data",
+      "name": "Extract Caller Query",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [220, 0]
     },
     {
       "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.query }}",
         "options": {
-          "systemMessage": "You are a helpful AI assistant. Use the knowledge base tool to search for relevant information before answering questions. Provide accurate, contextual responses based on the retrieved information. Keep responses concise and conversational since they will be converted to speech. If you cannot find relevant information in the knowledge base, acknowledge this and provide the best answer you can."
+          "systemMessage": "You are a helpful voice assistant answering phone calls. Your responses will be spoken aloud to callers.\n\nIMPORTANT GUIDELINES:\n- ALWAYS use the knowledge_base tool to search for relevant information before answering\n- Keep responses concise and conversational (2-3 sentences max)\n- Speak naturally as if talking on the phone\n- Avoid technical jargon, bullet points, or formatting\n- If you can't find relevant information, politely say you don't have that information\n- Be friendly and professional"
         }
       },
       "id": "ai-agent",
-      "name": "Generate Answer",
+      "name": "Generate Answer from Knowledge Base",
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 1.7,
       "position": [440, 0]
@@ -51,7 +51,7 @@
       "name": "Google Gemini Chat Model",
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
       "typeVersion": 1,
-      "position": [440, 200],
+      "position": [340, 220],
       "credentials": {
         "googleGeminiApi": {
           "id": "your-gemini-credential-id",
@@ -66,15 +66,13 @@
           "mode": "list",
           "value": "your-collection-name"
         },
-        "options": {
-          "searchFilterJson": ""
-        }
+        "options": {}
       },
       "id": "qdrant-vector-store",
       "name": "Qdrant Vector Store",
       "type": "@n8n/n8n-nodes-langchain.vectorStoreQdrant",
       "typeVersion": 1,
-      "position": [540, 400],
+      "position": [640, 400],
       "credentials": {
         "qdrantApi": {
           "id": "your-qdrant-credential-id",
@@ -91,7 +89,7 @@
       "name": "OpenAI Embeddings",
       "type": "@n8n/n8n-nodes-langchain.embeddingsOpenAi",
       "typeVersion": 1,
-      "position": [540, 560],
+      "position": [640, 560],
       "credentials": {
         "openAiApi": {
           "id": "your-openai-credential-id",
@@ -102,119 +100,88 @@
     {
       "parameters": {
         "name": "knowledge_base",
-        "description": "Search the knowledge base for relevant information to answer user questions. Use this tool to retrieve context before responding.",
+        "description": "Search the knowledge base for information to answer caller questions. Always use this tool before responding to find accurate information.",
         "topK": 5
       },
       "id": "vector-store-tool",
       "name": "Vector Store Tool",
       "type": "@n8n/n8n-nodes-langchain.toolVectorStore",
       "typeVersion": 1,
-      "position": [640, 200]
+      "position": [540, 220]
     },
     {
       "parameters": {
         "sessionIdType": "customKey",
-        "sessionKey": "={{ $json.user_id }}"
+        "sessionKey": "={{ $json.conversation_id }}"
       },
       "id": "window-buffer-memory",
-      "name": "Window Buffer Memory",
+      "name": "Conversation Memory",
       "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
       "typeVersion": 1.3,
-      "position": [540, 200]
+      "position": [440, 220]
     },
     {
       "parameters": {
         "mode": "runOnceForAllItems",
-        "jsCode": "// Prepare ElevenLabs request\nconst aiResponse = $input.first().json.output;\nconst voice_id = $('Extract Webhook Data').first().json.voice_id;\n\nreturn [{\n  json: {\n    text: aiResponse,\n    voice_id: voice_id,\n    model_id: 'eleven_turbo_v2_5',\n    voice_settings: {\n      stability: 0.5,\n      similarity_boost: 0.75,\n      style: 0.0,\n      use_speaker_boost: true\n    }\n  }\n}];"
+        "jsCode": "// Format response for ElevenLabs Conversational AI\nconst aiResponse = $input.first().json.output;\n\n// ElevenLabs expects a JSON response with the text to speak\nreturn [{\n  json: {\n    response: aiResponse,\n    text: aiResponse\n  }\n}];"
       },
-      "id": "prepare-elevenlabs",
-      "name": "Prepare ElevenLabs Request",
+      "id": "format-response",
+      "name": "Format Response for ElevenLabs",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [660, 0]
     },
     {
       "parameters": {
-        "method": "POST",
-        "url": "=https://api.elevenlabs.io/v1/text-to-speech/{{ $json.voice_id }}",
-        "authentication": "genericCredentialType",
-        "genericAuthType": "httpHeaderAuth",
-        "sendBody": true,
-        "specifyBody": "json",
-        "jsonBody": "={\n  \"text\": {{ JSON.stringify($json.text) }},\n  \"model_id\": \"{{ $json.model_id }}\",\n  \"voice_settings\": {\n    \"stability\": {{ $json.voice_settings.stability }},\n    \"similarity_boost\": {{ $json.voice_settings.similarity_boost }},\n    \"style\": {{ $json.voice_settings.style }},\n    \"use_speaker_boost\": {{ $json.voice_settings.use_speaker_boost }}\n  }\n}",
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
         "options": {
-          "response": {
-            "response": {
-              "responseFormat": "file"
-            }
-          }
-        }
-      },
-      "id": "elevenlabs-tts",
-      "name": "ElevenLabs Text-to-Speech",
-      "type": "n8n-nodes-base.httpRequest",
-      "typeVersion": 4.2,
-      "position": [880, 0],
-      "credentials": {
-        "httpHeaderAuth": {
-          "id": "your-elevenlabs-credential-id",
-          "name": "ElevenLabs API Key"
-        }
-      }
-    },
-    {
-      "parameters": {
-        "respondWith": "binary",
-        "options": {
+          "responseCode": 200,
           "responseHeaders": {
             "entries": [
               {
                 "name": "Content-Type",
-                "value": "audio/mpeg"
-              },
-              {
-                "name": "Access-Control-Allow-Origin",
-                "value": "*"
+                "value": "application/json"
               }
             ]
           }
         }
       },
-      "id": "respond-webhook",
-      "name": "Respond to Webhook",
+      "id": "respond-to-elevenlabs",
+      "name": "Respond to ElevenLabs",
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.1,
-      "position": [1100, 0]
+      "position": [880, 0]
     }
   ],
   "connections": {
-    "Webhook": {
+    "ElevenLabs Webhook": {
       "main": [
         [
           {
-            "node": "Extract Webhook Data",
+            "node": "Extract Caller Query",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Extract Webhook Data": {
+    "Extract Caller Query": {
       "main": [
         [
           {
-            "node": "Generate Answer",
+            "node": "Generate Answer from Knowledge Base",
             "type": "main",
             "index": 0
           }
         ]
       ]
     },
-    "Generate Answer": {
+    "Generate Answer from Knowledge Base": {
       "main": [
         [
           {
-            "node": "Prepare ElevenLabs Request",
+            "node": "Format Response for ElevenLabs",
             "type": "main",
             "index": 0
           }
@@ -225,18 +192,18 @@
       "ai_languageModel": [
         [
           {
-            "node": "Generate Answer",
+            "node": "Generate Answer from Knowledge Base",
             "type": "ai_languageModel",
             "index": 0
           }
         ]
       ]
     },
-    "Window Buffer Memory": {
+    "Conversation Memory": {
       "ai_memory": [
         [
           {
-            "node": "Generate Answer",
+            "node": "Generate Answer from Knowledge Base",
             "type": "ai_memory",
             "index": 0
           }
@@ -247,7 +214,7 @@
       "ai_tool": [
         [
           {
-            "node": "Generate Answer",
+            "node": "Generate Answer from Knowledge Base",
             "type": "ai_tool",
             "index": 0
           }
@@ -276,22 +243,11 @@
         ]
       ]
     },
-    "Prepare ElevenLabs Request": {
+    "Format Response for ElevenLabs": {
       "main": [
         [
           {
-            "node": "ElevenLabs Text-to-Speech",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "ElevenLabs Text-to-Speech": {
-      "main": [
-        [
-          {
-            "node": "Respond to Webhook",
+            "node": "Respond to ElevenLabs",
             "type": "main",
             "index": 0
           }
